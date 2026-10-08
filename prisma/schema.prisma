@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// Supermercado vindo do OpenStreetMap
+model Store {
+  id        String           @id // ex: "node/123"
+  name      String
+  brand     String?
+  chain     String? // chave da rede (zonasul, prezunic...)
+  shop      String
+  lat       Float
+  lon       Float
+  address   String?
+  updatedAt DateTime         @updatedAt
+  prices    CommunityPrice[]
+
+  @@index([lat, lon])
+}
+
+/// Células de grade já buscadas no Overpass
+model AreaCell {
+  key       String   @id
+  fetchedAt DateTime @default(now())
+  count     Int      @default(0)
+}
+
+/// Cache genérico chave/valor com expiração
+model CacheEntry {
+  key       String   @id
+  value     Json
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+model CommunityPrice {
+  id              String         @id @default(cuid())
+  product         String
+  productNorm     String
+  price           Float
+  storeId         String
+  store           Store          @relation(fields: [storeId], references: [id])
+  observedAt      DateTime
+  createdAt       DateTime       @default(now())
+  ipHash          String
+  photo           Bytes?
+  photoMime       String?
+  confirmations   Int            @default(0)
+  lastConfirmedAt DateTime?
+  votes           Confirmation[]
+
+  @@index([storeId])
+  @@index([createdAt])
+}
+
+model Confirmation {
+  id        String         @id @default(cuid())
+  priceId   String
+  price     CommunityPrice @relation(fields: [priceId], references: [id], onDelete: Cascade)
+  ipHash    String
+  createdAt DateTime       @default(now())
+
+  @@unique([priceId, ipHash])
+}
+
+model RateEvent {
+  id        String   @id @default(cuid())
+  ipHash    String
+  kind      String
+  createdAt DateTime @default(now())
+
+  @@index([ipHash, kind, createdAt])
+}
