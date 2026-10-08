@@ -153,18 +153,27 @@ export function useLocation() {
   useEffect(() => {
     if (!follow || typeof navigator === "undefined" || !("geolocation" in navigator)) return;
     let last = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let pending: { lat: number; lon: number; accuracy: number } | null = null;
+    const commit = () => {
+      timer = null;
+      if (!pending) return;
+      last = Date.now();
+      setError(null);
+      apply({ lat: pending.lat, lon: pending.lon, accuracy: pending.accuracy, source: "gps", at: last, force: false, place: null, manualCep: null });
+      pending = null;
+    };
     const id = navigator.geolocation.watchPosition(
       (p) => {
-        const cur = locRef.current;
-        const pos = { lat: p.coords.latitude, lon: p.coords.longitude };
         if (p.coords.accuracy > 500) return; // leitura ruim demais para decidir
-        const moved = cur.source === "buscando" || cur.source === "padrao" ? Infinity : kmBetween(cur, pos);
-        const now = Date.now();
-        if (moved > 0.3 && now - last > 30000) {
-          last = now;
-          setError(null);
-          apply({ ...pos, accuracy: p.coords.accuracy, source: "gps", at: now, force: false, place: null, manualCep: null });
-        }
+        const cur = locRef.current;
+        const pos = { lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy };
+        const moved = cur.source === "buscando" || cur.source === "padrao" || cur.source === "manual" ? Infinity : kmBetween(cur, pos);
+        if (moved <= 0.3) return;
+        pending = pos; // a leitura mais recente sempre substitui a anterior
+        const wait = 30000 - (Date.now() - last);
+        if (wait <= 0) commit();
+        else if (!timer) timer = setTimeout(commit, wait); // limita a 1 atualização a cada 30 s, sem perder a última posição
       },
       (e) => {
         setError(geoErrorMessage(e.code));
@@ -172,7 +181,10 @@ export function useLocation() {
       },
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 },
     );
-    return () => navigator.geolocation.clearWatch(id);
+    return () => {
+      navigator.geolocation.clearWatch(id);
+      if (timer) clearTimeout(timer);
+    };
   }, [follow, apply, setFollow]);
 
   return { loc, locating, error, setError, refresh, setManual, setPlace, follow, setFollow };
