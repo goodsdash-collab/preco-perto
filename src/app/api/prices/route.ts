@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "A data precisa ser dos últimos 60 dias." }, { status: 400 });
   }
   const store = await prisma.store.findUnique({ where: { id: storeId } });
-  if (!store) return NextResponse.json({ error: "Escolha um mercado da lista." }, { status: 400 });
+  if (!store) return NextResponse.json({ error: "Escolha uma loja da lista." }, { status: 400 });
 
   let photo: Buffer | null = null;
   let photoMime: string | null = null;

@@ -31,11 +31,11 @@ function today() {
   return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
 }
 
-export default function PriceForm({ stores, initialProduct, onClose, onSaved }: { stores: StoreLite[]; initialProduct: string; onClose: () => void; onSaved: (product: string) => void }) {
+export default function PriceForm({ stores, initialProduct, initialStoreId, onClose, onSaved }: { stores: StoreLite[]; initialProduct: string; initialStoreId?: string | null; onClose: () => void; onSaved: (product: string) => void }) {
   const [product, setProduct] = useState(initialProduct);
   const [price, setPrice] = useState("");
   const [storeFilter, setStoreFilter] = useState("");
-  const [storeId, setStoreId] = useState("");
+  const [storeId, setStoreId] = useState(initialStoreId || "");
   const [date, setDate] = useState(today());
   const [photo, setPhoto] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -44,14 +44,14 @@ export default function PriceForm({ stores, initialProduct, onClose, onSaved }: 
   const list = useMemo(() => {
     const f = storeFilter.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     return stores
-      .filter((s) => !f || s.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(f))
-      .slice(0, 80);
+      .filter((s) => s.id === storeId || !f || s.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(f))
+      .slice(0, 120);
   }, [stores, storeFilter]);
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setErr(null);
-    if (!storeId) return setErr("Escolha o mercado.");
+    if (!storeId) return setErr("Escolha a loja.");
     setBusy(true);
     try {
       const fd = new FormData();
@@ -79,7 +79,7 @@ export default function PriceForm({ stores, initialProduct, onClose, onSaved }: 
           <h2 className="text-lg font-bold">Registrar preço</h2>
           <button type="button" onClick={onClose} className="rounded-full px-3 py-1 text-2xl leading-none text-gray-500" aria-label="Fechar">×</button>
         </div>
-        <p className="mb-4 text-sm text-gray-600">Viu um preço no mercado? Compartilhe com quem mora perto.</p>
+        <p className="mb-4 text-sm text-gray-600">Viu um preço numa loja, mercado, padaria ou farmácia? Compartilhe com quem mora perto.</p>
 
         <label className="mb-1 block text-sm font-semibold">Produto</label>
         <input required value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Ex.: Arroz Tio João 5kg" className="mb-3 w-full rounded-xl border px-3 py-3 text-base" maxLength={120} />
@@ -87,10 +87,10 @@ export default function PriceForm({ stores, initialProduct, onClose, onSaved }: 
         <label className="mb-1 block text-sm font-semibold">Preço (R$)</label>
         <input required inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^0-9,.]/g, ""))} placeholder="Ex.: 22,90" className="mb-3 w-full rounded-xl border px-3 py-3 text-base" />
 
-        <label className="mb-1 block text-sm font-semibold">Mercado</label>
+        <label className="mb-1 block text-sm font-semibold">Loja</label>
         <input value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)} placeholder="Filtrar por nome…" className="mb-2 w-full rounded-xl border px-3 py-2 text-sm" />
         <select required value={storeId} onChange={(e) => setStoreId(e.target.value)} className="mb-3 w-full rounded-xl border bg-white px-3 py-3 text-base" size={1}>
-          <option value="">{stores.length ? "Escolha o mercado" : "Carregando mercados próximos…"}</option>
+          <option value="">{stores.length ? "Escolha a loja" : "Carregando lojas próximas…"}</option>
           {list.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name} · {dist(s.distanceKm)}{s.address ? ` · ${s.address}` : ""}

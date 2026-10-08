@@ -2,6 +2,7 @@ import { prisma } from "./db";
 import { fetchWithTimeout, UA } from "./cache";
 import { bboxAround, haversineKm } from "./geo";
 import { chainForStore } from "./chains";
+import { nicheForShop, OSM_SHOPS, type Niche } from "./categories";
 
 const CELL = 0.05; // ~5,5 km
 const CELL_TTL_MS = 7 * 24 * 3600 * 1000;
@@ -15,6 +16,7 @@ const ENDPOINTS = [
 type OsmEl = { type: string; id: number; lat?: number; lon?: number; center?: { lat: number; lon: number }; tags?: Record<string, string> };
 
 export type NearStore = {
+  niche: Niche;
   id: string;
   name: string;
   brand: string | null;
@@ -31,14 +33,15 @@ function cellsFor(lat: number, lon: number, km: number) {
   const keys: { key: string; s: number; w: number; n: number; e: number }[] = [];
   for (let i = Math.floor(b.south / CELL); i <= Math.floor(b.north / CELL); i++) {
     for (let j = Math.floor(b.west / CELL); j <= Math.floor(b.east / CELL); j++) {
-      keys.push({ key: `${i}:${j}`, s: i * CELL, w: j * CELL, n: (i + 1) * CELL, e: (j + 1) * CELL });
+      keys.push({ key: `v2:${i}:${j}`, s: i * CELL, w: j * CELL, n: (i + 1) * CELL, e: (j + 1) * CELL });
     }
   }
   return keys;
 }
 
 async function overpass(s: number, w: number, n: number, e: number): Promise<OsmEl[]> {
-  const q = `[out:json][timeout:25];(nwr["shop"~"^(supermarket|convenience|wholesale)$"](${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)}););out center tags;`;
+  const bb = `${s.toFixed(4)},${w.toFixed(4)},${n.toFixed(4)},${e.toFixed(4)}`;
+  const q = `[out:json][timeout:25];(nwr["shop"~"^(${OSM_SHOPS.join("|")})$"](${bb});nwr["amenity"="pharmacy"](${bb}););out center tags;`;
   let lastErr: unknown = null;
   for (const ep of ENDPOINTS) {
     try {
@@ -77,15 +80,16 @@ export async function ensureStores(lat: number, lon: number, km: number): Promis
         const la = el.lat ?? el.center?.lat;
         const lo = el.lon ?? el.center?.lon;
         if (la == null || lo == null) return null;
+        const shop = t.amenity === "pharmacy" ? "pharmacy" : t.shop || "supermarket";
         const name = t.name || t.brand;
-        if (!name && t.shop === "convenience") return null;
+        if (!name && shop !== "supermarket") return null;
         const addr = [t["addr:street"] && `${t["addr:street"]}${t["addr:housenumber"] ? ", " + t["addr:housenumber"] : ""}`, t["addr:suburb"]].filter(Boolean).join(" - ");
         return {
           id: `${el.type}/${el.id}`,
           name: name || "Mercado (sem nome no mapa)",
           brand: t.brand || t.operator || null,
-          chain: chainForStore(name || "", t.brand, t.operator),
-          shop: t.shop || "supermarket",
+          chain: chainForStore(name || "", t.brand, t.operator, nicheForShop(shop)),
+          shop,
           lat: la,
           lon: lo,
           address: addr || null,
@@ -109,7 +113,7 @@ export async function nearbyStores(lat: number, lon: number, km: number): Promis
     take: 3000,
   });
   return rows
-    .map((r) => ({ id: r.id, name: r.name, brand: r.brand, chain: chainForStore(r.name, r.brand), shop: r.shop, lat: r.lat, lon: r.lon, address: r.address, distanceKm: haversineKm(lat, lon, r.lat, r.lon) }))
+    .map((r) => ({ niche: nicheForShop(r.shop), id: r.id, name: r.name, brand: r.brand, chain: chainForStore(r.name, r.brand, null, nicheForShop(r.shop)), shop: r.shop, lat: r.lat, lon: r.lon, address: r.address, distanceKm: haversineKm(lat, lon, r.lat, r.lon) }))
     .filter((r) => r.distanceKm <= km)
     .sort((a, b2) => a.distanceKm - b2.distanceKm);
 }

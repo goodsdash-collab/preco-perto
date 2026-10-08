@@ -33,6 +33,8 @@ export type Local = {
 export type ChainDef = {
   key: string;
   name: string;
+  /** Nichos atendidos (mercado, farmacia, pet...) */
+  niches: import("../categories").Niche[];
   platform: "vtex" | "gpa";
   host: string;
   /** UFs atendidas ("*" = nacional). Usado para decidir quais redes consultar. */

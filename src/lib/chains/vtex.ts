@@ -7,6 +7,8 @@ type VtexProduct = {
   linkText?: string;
   items: {
     itemId: string;
+    name?: string;
+    nameComplete?: string;
     images?: { imageUrl: string }[];
     sellers: { sellerId: string; sellerName?: string; commertialOffer: { Price: number; ListPrice: number; AvailableQuantity: number } }[];
   }[];
@@ -17,12 +19,18 @@ const HEADERS = { "User-Agent": UA, Accept: "application/json" };
 function toOffers(host: string, products: VtexProduct[]): Offer[] {
   const out: Offer[] = [];
   for (const p of products || []) {
-    for (const item of (p.items || []).slice(0, 1)) {
-      const seller = item.sellers?.find((s) => s.commertialOffer?.AvailableQuantity > 0 && s.commertialOffer?.Price > 0);
+    const items = p.items || [];
+    for (const item of items.slice(0, 6)) {
+      const seller = item.sellers?.find((s) => s.commertialOffer?.AvailableQuantity > 0 && s.commertialOffer?.Price >= 0.5);
       if (!seller) continue;
+      // Produtos com variações (ex.: ração 3kg / 15kg) trazem o tamanho só no nome do SKU
+      let name = p.productName;
+      if (items.length > 1 && item.name && !name.toLowerCase().includes(item.name.toLowerCase())) {
+        name = item.nameComplete && item.nameComplete.length > name.length ? item.nameComplete : `${name} ${item.name}`;
+      }
       const url = p.linkText ? `https://${host}/${p.linkText}/p` : (p.link || `https://${host}`).replace(/https:\/\/secure\./, "https://www.");
       out.push({
-        product: p.productName,
+        product: name,
         price: seller.commertialOffer.Price,
         listPrice: seller.commertialOffer.ListPrice,
         url,
@@ -75,9 +83,7 @@ export function vtexChain(def: ChainDef): ChainAdapter {
     async prepare(ctx: GeoCtx): Promise<Local> {
       const national: Local = { serves: true, scope: "nacional", label: `Preço do site ${def.name} (o mesmo para todo o site). Pode variar na loja física.` };
       if (def.region === "none") {
-        return def.states === "*" || !ctx.uf || (def.states as string[]).includes(ctx.uf)
-          ? { ...national, scope: "regional", label: `Preço do site ${def.name} (${def.coverage}). Pode variar na loja física.` }
-          : national;
+        return def.states === "*" ? national : { ...national, scope: "regional", label: `Preço do site ${def.name} (${def.coverage}). Pode variar na loja física.` };
       }
       if (!ctx.cep) {
         return def.region === "required" ? { ...national, serves: def.states !== "*" } : national;

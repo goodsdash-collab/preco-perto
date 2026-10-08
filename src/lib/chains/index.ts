@@ -1,6 +1,7 @@
 import { gpaChain } from "./gpa";
 import { REGISTRY } from "./registry";
 import type { ChainAdapter } from "./types";
+import type { Niche } from "../categories";
 import { vtexChain } from "./vtex";
 
 export const CHAINS: ChainAdapter[] = REGISTRY.map((d) => (d.platform === "gpa" ? gpaChain(d) : vtexChain(d)));
@@ -47,10 +48,11 @@ function aliasMatch(text: string, alias: string): boolean {
 }
 
 /** Descobre a rede de uma loja do OSM pelo nome/marca/operador (com apelidos e tolerância a 1 erro de digitação). */
-export function chainForStore(name: string, brand?: string | null, operator?: string | null): string | null {
+export function chainForStore(name: string, brand?: string | null, operator?: string | null, niche?: Niche): string | null {
   const text = norm(`${brand || ""} ${name || ""} ${operator || ""}`);
   if (!text) return null;
   for (const c of REGISTRY) {
+    if (niche && !c.niches.includes(niche) && !(niche === "outros" && c.key === "americanas")) continue;
     if (c.osmNot?.some((n) => text.includes(n))) continue;
     if (c.osm.some((a) => aliasMatch(text, a))) return c.key;
   }

@@ -11,5 +11,5 @@ export async function GET(req: Request) {
   const km = Math.min(8, Math.max(1, Number(u.searchParams.get("km")) || 4));
   const osm = await ensureStores(lat, lon, km);
   const stores = await nearbyStores(lat, lon, km);
-  return NextResponse.json({ osm, stores: stores.slice(0, 300) });
+  return NextResponse.json({ osm, stores: stores.slice(0, 500) });
 }

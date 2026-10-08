@@ -5,6 +5,7 @@ import type { ChainAdapter, Delivery, GeoCtx, Local, Offer, PriceScope } from ".
 import { geoFor } from "./cep";
 import { ensureStores, nearbyStores, type NearStore } from "./osm";
 import { isPrimary, matchesAll, normalize, tokens } from "./text";
+import { classify, type Niche } from "./categories";
 
 export type PriceEntry = {
   source: "site" | "comunidade";
@@ -104,6 +105,8 @@ export async function runSearch(q: string, lat: number, lon: number, km: number)
   const t0 = Date.now();
   const qTokens = tokens(q);
   const qNorm = normalize(q);
+  const niches = classify(q);
+  const fitsNiche = (c: ChainAdapter) => c.def.niches.some((n) => niches.includes(n));
 
   // Geo (CEP/UF) e lojas do OSM em paralelo; as redes da UF começam assim que o CEP chega.
   const geoP = geoFor(lat, lon);
@@ -111,14 +114,14 @@ export async function runSearch(q: string, lat: number, lon: number, km: number)
 
   const geo = await geoP;
   const launched = new Map<string, Promise<ChainRun>>();
-  for (const c of CHAINS) if (inStates(c, geo.uf)) launched.set(c.key, runChain(c, q, qNorm, qTokens, geo));
+  for (const c of CHAINS) if (fitsNiche(c) && inStates(c, geo.uf)) launched.set(c.key, runChain(c, q, qNorm, qTokens, geo));
 
   const storesRes = await storesP;
   const osm = storesRes.osm;
   let stores = storesRes.stores;
   // Redes com loja física por perto mas fora da lista da UF (ex.: Muffato no oeste de SP)
   for (const c of CHAINS) {
-    if (!launched.has(c.key) && stores.some((s) => s.chain === c.key)) launched.set(c.key, runChain(c, q, qNorm, qTokens, geo));
+    if (fitsNiche(c) && !launched.has(c.key) && stores.some((s) => s.chain === c.key)) launched.set(c.key, runChain(c, q, qNorm, qTokens, geo));
   }
   const chainOut = await Promise.all(launched.values());
 
@@ -215,6 +218,11 @@ export async function runSearch(q: string, lat: number, lon: number, km: number)
   results.sort((a, b) => a.best.price - b.best.price || (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
 
   const consulted = chainOut.filter((r) => r.status.status !== "fora da área");
+  const pricedIds = new Set(results.filter((r) => r.store).map((r) => r.store!.id));
+  const unpriced = stores
+    .filter((s) => niches.includes(s.niche as Niche) && !pricedIds.has(s.id) && s.distanceKm <= km)
+    .slice(0, 12)
+    .map((s) => ({ id: s.id, name: s.name, niche: s.niche, shop: s.shop, address: s.address, distanceKm: s.distanceKm, lat: s.lat, lon: s.lon }));
   return {
     query: q,
     center: { lat, lon },
@@ -224,7 +232,9 @@ export async function runSearch(q: string, lat: number, lon: number, km: number)
     uf: geo.uf,
     city: geo.city,
     osm,
-    stores: stores.slice(0, 300).map((s) => ({ id: s.id, name: s.name, chain: s.chain, shop: s.shop, lat: s.lat, lon: s.lon, address: s.address, distanceKm: s.distanceKm })),
+    niches,
+    unpriced,
+    stores: stores.slice(0, 500).map((s) => ({ id: s.id, name: s.name, chain: s.chain, niche: s.niche, shop: s.shop, lat: s.lat, lon: s.lon, address: s.address, distanceKm: s.distanceKm })),
     results,
     consultedCount: consulted.length,
     pricedCount: consulted.filter((r) => r.offers.length).length,

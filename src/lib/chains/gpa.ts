@@ -57,7 +57,7 @@ export function gpaChain(def: ChainDef): ChainAdapter {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = (await r.json()) as { products?: GpaProduct[] };
       return (j.products || [])
-        .filter((p) => p.stock && p.price > 0)
+        .filter((p) => p.stock && p.price >= 0.5)
         .map<Offer>((p) => ({
           product: p.name,
           price: p.price,

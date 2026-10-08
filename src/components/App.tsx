@@ -5,11 +5,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import PriceForm from "./PriceForm";
 import { ago, brl, dist } from "./format";
 import type { PriceEntry, ResultItem, SearchData, StoreLite } from "./types";
+import { NICHE_INFO, type Niche } from "@/lib/categories";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-gray-200" /> });
 
 const RIO = { lat: -22.9068, lon: -43.1729 };
-const SUGESTOES = ["arroz 5kg", "leite integral", "feijão preto", "café 500g", "óleo de soja", "açúcar 1kg"];
+const SUGESTOES = ["arroz 5kg", "dipirona", "ração golden 15kg", "pão francês", "cimento 50kg", "pastilha de freio", "fone bluetooth", "leite integral"];
 
 type Loc = { lat: number; lon: number; source: "gps" | "padrao" | "buscando" };
 
@@ -83,6 +84,8 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [nicheFilter, setNicheFilter] = useState<string[] | null>(null);
+  const [formStore, setFormStore] = useState<string | null>(null);
 
   useEffect(() => {
     if (!("geolocation" in navigator)) return setLoc({ ...RIO, source: "padrao" });
@@ -123,6 +126,7 @@ export default function App() {
         if (!r.ok) throw new Error(j.error || "Erro na busca");
         setData(j);
         if (j.stores?.length) setStores(j.stores);
+        setNicheFilter(j.niches || null);
         window.history.replaceState(null, "", `?q=${encodeURIComponent(t)}`);
       } catch (e) {
         setError((e as Error).message);
@@ -155,6 +159,13 @@ export default function App() {
     return list;
   }, [data, sort]);
 
+  const nicheCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const s of stores) m.set(s.niche || "mercado", (m.get(s.niche || "mercado") || 0) + 1);
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+  }, [stores]);
+  const mapStores = useMemo(() => (nicheFilter ? stores.filter((s) => nicheFilter.includes(s.niche || "mercado")) : stores), [stores, nicheFilter]);
+
   const cheapest = results.length ? Math.min(...results.map((r) => r.best.price)) : null;
   const center = data?.center || { lat: loc.lat, lon: loc.lon };
   const onSelect = useCallback((id: string) => {
@@ -166,8 +177,8 @@ export default function App() {
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col">
       <header className="sticky top-0 z-[1000] bg-brand px-4 pb-3 pt-4 text-white shadow">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-extrabold tracking-tight">📍 Preço Perto</h1>
-          <span className="text-xs text-white/80">{data?.city ? `mercados em ${data.city}` : "mercados perto de você"}</span>
+          <h1 className="text-xl font-extrabold tracking-tight">📍 Preço Perto <span className="hidden text-sm font-normal text-white/80 sm:inline">o menor preço perto de você</span></h1>
+          <span className="text-xs text-white/80">{data?.city ? `lojas em ${data.city}` : "o menor preço perto de você"}</span>
         </div>
         <form
           onSubmit={(e) => {
@@ -179,7 +190,7 @@ export default function App() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="O que você procura? Ex.: arroz 5kg"
+            placeholder="O que você procura? Ex.: arroz, dipirona, ração"
             className="min-w-0 flex-1 rounded-xl px-3 py-3 text-base text-gray-900 outline-none"
             enterKeyHint="search"
           />
@@ -204,8 +215,30 @@ export default function App() {
       </header>
 
       <section className="relative h-[42vh] min-h-[260px] w-full">
-        <MapView center={center} stores={stores} results={results} selectedId={selected} onSelect={onSelect} />
+        <MapView center={center} stores={mapStores} results={results} selectedId={selected} onSelect={onSelect} />
       </section>
+
+      {nicheCounts.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto bg-white px-3 py-2 text-xs shadow-sm">
+          <button onClick={() => setNicheFilter(null)} className={`shrink-0 rounded-full border px-2.5 py-1 ${!nicheFilter ? "border-brand bg-brand text-white" : "border-gray-200"}`}>
+            Todos ({stores.length})
+          </button>
+          {nicheCounts.map(([n, c]) => {
+            const info = NICHE_INFO[n as Niche] || NICHE_INFO.outros;
+            const on = !!nicheFilter && nicheFilter.includes(n);
+            return (
+              <button
+                key={n}
+                onClick={() => setNicheFilter(on && nicheFilter!.length === 1 ? null : on ? nicheFilter!.filter((x) => x !== n) : [...(nicheFilter || []), n])}
+                className={`shrink-0 rounded-full border px-2.5 py-1 ${on ? "text-white" : "border-gray-200"}`}
+                style={on ? { background: info.color, borderColor: info.color } : undefined}
+              >
+                {info.icon} {info.label} ({c})
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <section className="flex-1 px-3 pb-24 pt-3">
         {!data && !loading && (
@@ -218,7 +251,7 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <p className="mt-3 text-xs text-gray-500">{stores.length ? `${stores.length} mercados no mapa num raio de ${km} km.` : "Carregando mercados do mapa…"}</p>
+            <p className="mt-3 text-xs text-gray-500">{stores.length ? `${stores.length} lojas no mapa num raio de ${km} km.` : "Carregando lojas do mapa…"}</p>
           </div>
         )}
 
@@ -229,7 +262,7 @@ export default function App() {
           <>
             <div className="mb-2 rounded-xl bg-white p-3 text-sm shadow-sm">
               <p className="font-semibold">
-                🔎 Consultamos {data.consultedCount} rede{data.consultedCount === 1 ? "" : "s"} para sua região
+                🔎 Consultamos {data.consultedCount} rede{data.consultedCount === 1 ? "" : "s"} de {(data.niches || []).map((n) => `${NICHE_INFO[n as Niche]?.icon || ""} ${NICHE_INFO[n as Niche]?.label.toLowerCase() || n}`).join(" e ")} para sua região
                 {data.city || data.uf ? ` (${[data.city, data.uf].filter(Boolean).join("/")})` : ""}
               </p>
               <div className="mt-2 flex flex-wrap gap-1 text-xs">
@@ -305,6 +338,28 @@ export default function App() {
                 );
               })}
             </ul>
+            {data.unpriced?.length > 0 && (
+              <div className="mt-5 rounded-2xl bg-white p-3 shadow-sm">
+                <h3 className="mb-1 font-bold">Lojas por perto sem preço online</h3>
+                <p className="mb-2 text-xs text-gray-500">Padarias, mercadinhos e lojas de bairro não têm preço na internet. Passou por lá? Registre o preço e ajude quem mora perto.</p>
+                <ul className="divide-y">
+                  {data.unpriced.map((u) => {
+                    const info = NICHE_INFO[u.niche as Niche] || NICHE_INFO.outros;
+                    return (
+                      <li key={u.id} className="flex items-center justify-between gap-2 py-2 text-sm">
+                        <button className="min-w-0 text-left" onClick={() => setSelected(u.id)}>
+                          <div className="truncate font-medium">{info.icon} {u.name}</div>
+                          <div className="truncate text-xs text-gray-500">{dist(u.distanceKm)}{u.address ? ` · ${u.address}` : ""} · sem preço online</div>
+                        </button>
+                        <button onClick={() => { setFormStore(u.id); setShowForm(true); }} className="shrink-0 rounded-full border border-orange-300 px-3 py-1 text-xs font-semibold text-orange-700">
+                          Registrar preço
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
             <p className="mt-6 text-center text-[11px] text-gray-400">
               Preços “site/online” vêm das lojas virtuais das redes que atendem o seu CEP e podem ser diferentes na loja física. Preços “comunidade” são enviados por usuários. Mapa © OpenStreetMap.
             </p>
@@ -322,9 +377,11 @@ export default function App() {
         <PriceForm
           stores={stores}
           initialProduct={data?.query || q}
-          onClose={() => setShowForm(false)}
+          initialStoreId={formStore}
+          onClose={() => { setShowForm(false); setFormStore(null); }}
           onSaved={(p) => {
             setShowForm(false);
+            setFormStore(null);
             setToast("Preço registrado. Obrigado!");
             setTimeout(() => setToast(null), 3000);
             setQ(p);

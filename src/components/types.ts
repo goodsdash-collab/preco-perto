@@ -1,4 +1,4 @@
-export type StoreLite = { id: string; name: string; chain: string | null; shop: string; lat: number; lon: number; address: string | null; distanceKm: number };
+export type StoreLite = { id: string; name: string; chain: string | null; niche?: string; shop: string; lat: number; lon: number; address: string | null; distanceKm: number };
 export type PriceEntry = {
   source: "site" | "comunidade";
   product: string;
@@ -38,6 +38,8 @@ export type SearchData = {
   ms: number;
   osm: { ok: boolean; error?: string };
   stores: StoreLite[];
+  niches: string[];
+  unpriced: { id: string; name: string; niche: string; shop: string; address: string | null; distanceKm: number; lat: number; lon: number }[];
   results: ResultItem[];
   chains: ChainStatus[];
 };

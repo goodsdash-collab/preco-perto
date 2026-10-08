@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import type { ResultItem, StoreLite } from "./types";
 import { brl, dist } from "./format";
+import { NICHE_INFO, type Niche } from "@/lib/categories";
 
 type Props = {
   center: { lat: number; lon: number };
@@ -52,8 +53,9 @@ export default function MapView({ center, stores, results, selectedId, onSelect 
     const withPrice = new Set(results.filter((r) => r.store).map((r) => r.store!.id));
     for (const s of stores) {
       if (withPrice.has(s.id)) continue;
-      const cm = L.circleMarker([s.lat, s.lon], { radius: 5, color: "#868e96", weight: 1, fillColor: "#adb5bd", fillOpacity: 0.8 })
-        .bindPopup(`<b>${esc(s.name)}</b><br/>${dist(s.distanceKm)}<br/><small>Sem preço para essa busca</small>`)
+      const info = NICHE_INFO[(s.niche as Niche) || "mercado"] || NICHE_INFO.outros;
+      const cm = L.circleMarker([s.lat, s.lon], { radius: 5, color: "#fff", weight: 1, fillColor: info.color, fillOpacity: 0.75 })
+        .bindPopup(`${info.icon} <b>${esc(s.name)}</b><br/>${dist(s.distanceKm)}<br/><small>Sem preço online para essa busca</small>`)
         .addTo(lg);
       markers.current.set(s.id, cm);
     }
