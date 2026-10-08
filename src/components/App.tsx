@@ -98,6 +98,15 @@ export default function App() {
       .catch(() => {});
   }, [loc.lat, loc.lon, loc.source, km]);
 
+  const [autoQ, setAutoQ] = useState<string | null>(null);
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("q");
+    if (p) {
+      setQ(p);
+      setAutoQ(p);
+    }
+  }, []);
+
   const search = useCallback(
     async (term: string) => {
       const t = term.trim();
@@ -111,6 +120,7 @@ export default function App() {
         if (!r.ok) throw new Error(j.error || "Erro na busca");
         setData(j);
         if (j.stores?.length) setStores(j.stores);
+        window.history.replaceState(null, "", `?q=${encodeURIComponent(t)}`);
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -119,6 +129,13 @@ export default function App() {
     },
     [loc.lat, loc.lon, km],
   );
+
+  useEffect(() => {
+    if (autoQ && loc.source !== "buscando") {
+      search(autoQ);
+      setAutoQ(null);
+    }
+  }, [autoQ, loc.source, search]);
 
   async function confirm(id: string) {
     const r = await fetch(`/api/prices/${id}/confirm`, { method: "POST" });
@@ -147,7 +164,7 @@ export default function App() {
       <header className="sticky top-0 z-[1000] bg-brand px-4 pb-3 pt-4 text-white shadow">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-extrabold tracking-tight">📍 Preço Perto</h1>
-          <button onClick={() => setShowForm(true)} className="rounded-full bg-white/15 px-3 py-1.5 text-sm font-semibold">+ Registrar preço</button>
+          <span className="text-xs text-white/80">mercados do Rio</span>
         </div>
         <form
           onSubmit={(e) => {
