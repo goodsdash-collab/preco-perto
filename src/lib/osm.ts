@@ -83,8 +83,8 @@ export async function ensureStores(lat: number, lon: number, km: number): Promis
         return {
           id: `${el.type}/${el.id}`,
           name: name || "Mercado (sem nome no mapa)",
-          brand: t.brand || null,
-          chain: chainForStore(name || "", t.brand),
+          brand: t.brand || t.operator || null,
+          chain: chainForStore(name || "", t.brand, t.operator),
           shop: t.shop || "supermarket",
           lat: la,
           lon: lo,
@@ -109,7 +109,7 @@ export async function nearbyStores(lat: number, lon: number, km: number): Promis
     take: 3000,
   });
   return rows
-    .map((r) => ({ id: r.id, name: r.name, brand: r.brand, chain: r.chain, shop: r.shop, lat: r.lat, lon: r.lon, address: r.address, distanceKm: haversineKm(lat, lon, r.lat, r.lon) }))
+    .map((r) => ({ id: r.id, name: r.name, brand: r.brand, chain: chainForStore(r.name, r.brand), shop: r.shop, lat: r.lat, lon: r.lon, address: r.address, distanceKm: haversineKm(lat, lon, r.lat, r.lon) }))
     .filter((r) => r.distanceKm <= km)
     .sort((a, b2) => a.distanceKm - b2.distanceKm);
 }

@@ -44,7 +44,10 @@ function EntryRow({ e, onConfirm }: { e: PriceEntry; onConfirm: (id: string) => 
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-gray-500">
           {e.source === "site" ? (
-            <span className="rounded bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700">site/online</span>
+            <>
+              <span className="rounded bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700">site/online</span>
+              {e.scope && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600">{e.scope === "loja" ? "preço da loja" : e.scope === "regional" ? "preço regional" : "preço nacional"}</span>}
+            </>
           ) : (
             <span className="rounded bg-violet-50 px-1.5 py-0.5 font-semibold text-violet-700">comunidade</span>
           )}
@@ -164,7 +167,7 @@ export default function App() {
       <header className="sticky top-0 z-[1000] bg-brand px-4 pb-3 pt-4 text-white shadow">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-extrabold tracking-tight">📍 Preço Perto</h1>
-          <span className="text-xs text-white/80">mercados do Rio</span>
+          <span className="text-xs text-white/80">{data?.city ? `mercados em ${data.city}` : "mercados perto de você"}</span>
         </div>
         <form
           onSubmit={(e) => {
@@ -219,22 +222,34 @@ export default function App() {
           </div>
         )}
 
-        {loading && <p className="p-4 text-center text-sm text-gray-600">Buscando preços nos sites e na comunidade…</p>}
+        {loading && <p className="p-4 text-center text-sm text-gray-600">Consultando as redes que atendem a sua região e os preços da comunidade…</p>}
         {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
         {data && !loading && (
           <>
-            <div className="mb-2 flex flex-wrap gap-1 text-xs">
-              {data.chains.map((c) => (
-                <span key={c.key} title={c.error || ""} className={`rounded-full px-2 py-0.5 ${c.status === "ok" ? "bg-green-100 text-green-800" : c.status === "erro" ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"}`}>
-                  {c.status === "ok" ? "✓" : c.status === "erro" ? "⚠" : "–"} {c.name}
-                </span>
-              ))}
-              {!data.osm.ok && <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-yellow-800">mapa de mercados indisponível agora</span>}
+            <div className="mb-2 rounded-xl bg-white p-3 text-sm shadow-sm">
+              <p className="font-semibold">
+                🔎 Consultamos {data.consultedCount} rede{data.consultedCount === 1 ? "" : "s"} para sua região
+                {data.city || data.uf ? ` (${[data.city, data.uf].filter(Boolean).join("/")})` : ""}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1 text-xs">
+                {data.chains
+                  .filter((c) => c.status !== "fora da área")
+                  .map((c) => (
+                    <span key={c.key} title={c.error || ""} className={`rounded-full px-2 py-0.5 ${c.status === "ok" ? "bg-green-100 text-green-800" : c.status === "erro" ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-600"}`}>
+                      {c.status === "ok" ? "✓" : c.status === "erro" ? "⚠" : "–"} {c.name}
+                    </span>
+                  ))}
+                {!data.osm.ok && <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-yellow-800">mapa de mercados indisponível agora</span>}
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                {data.pricedCount} com preço para &quot;{data.query}&quot;
+                {data.cep ? ` · CEP ${data.cep.replace(/(\d{5})(\d{3})/, "$1-$2")}` : ""}
+                {data.widenedKm ? ` · ampliamos a busca de lojas para ${data.widenedKm} km` : ""}
+              </p>
             </div>
             <p className="mb-3 text-sm text-gray-600">
-              {results.length ? `${results.length} resultado(s) para "${data.query}"` : `Nenhum preço encontrado para "${data.query}" por perto.`}{" "}
-              {data.cep ? <span className="text-gray-400">· CEP {data.cep.replace(/(\d{5})(\d{3})/, "$1-$2")}</span> : null}
+              {results.length ? `${results.length} resultado(s)` : `Nenhum preço encontrado para "${data.query}" por perto.`}
             </p>
             {!results.length && (
               <button onClick={() => setShowForm(true)} className="mb-3 w-full rounded-xl border-2 border-dashed border-brand p-3 text-sm font-semibold text-brand-dark">
@@ -255,7 +270,7 @@ export default function App() {
                           {cheapest != null && r.best.price === cheapest && <span className="shrink-0 rounded bg-orange-100 px-1.5 text-xs font-bold text-orange-700">mais barato</span>}
                         </div>
                         <div className="text-xs text-gray-500">
-                          {r.distanceKm != null ? `📍 ${dist(r.distanceKm)}` : "🌐 só online"}
+                          {r.distanceKm != null ? `📍 ${dist(r.distanceKm)}${r.outsideRadius ? " (fora do raio)" : ""}` : "🌐 loja online · entrega no seu CEP"}
                           {r.store?.address ? ` · ${r.store.address}` : ""}
                         </div>
                       </div>
@@ -284,14 +299,14 @@ export default function App() {
                       )}
                     </div>
                     {r.entries.some((e) => e.source === "site") && r.chain && (
-                      <p className="mt-2 rounded-lg bg-gray-50 p-2 text-[11px] leading-snug text-gray-500">ℹ️ {r.chain.priceScope}</p>
+                      <p className="mt-2 rounded-lg bg-gray-50 p-2 text-[11px] leading-snug text-gray-500">ℹ️ {r.chain.priceScope}{r.chain.note ? ` ${r.chain.note}` : ""}</p>
                     )}
                   </li>
                 );
               })}
             </ul>
             <p className="mt-6 text-center text-[11px] text-gray-400">
-              Preços “site/online” vêm das lojas virtuais (Zona Sul, Prezunic, Atacadão, Pão de Açúcar) e podem ser diferentes na loja física. Preços “comunidade” são enviados por usuários. Mapa © OpenStreetMap.
+              Preços “site/online” vêm das lojas virtuais das redes que atendem o seu CEP e podem ser diferentes na loja física. Preços “comunidade” são enviados por usuários. Mapa © OpenStreetMap.
             </p>
           </>
         )}

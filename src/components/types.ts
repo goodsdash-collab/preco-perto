@@ -11,23 +11,31 @@ export type PriceEntry = {
   confirmations?: number;
   lastConfirmedAt?: string | null;
   hasPhoto?: boolean;
+  scope?: "loja" | "regional" | "nacional";
 };
 export type Delivery = { status: "sim" | "nao" | "consultar"; fee?: number | null; eta?: string | null; url: string; note?: string };
 export type ResultItem = {
   id: string;
   store: StoreLite | null;
-  chain: { key: string; name: string; site: string; priceScope: string } | null;
+  chain: { key: string; name: string; site: string; priceScope: string; scope: "loja" | "regional" | "nacional"; note?: string } | null;
   distanceKm: number | null;
+  outsideRadius?: boolean;
   best: PriceEntry;
   entries: PriceEntry[];
   delivery: Delivery;
 };
-export type ChainStatus = { key: string; name: string; status: "ok" | "sem resultado" | "erro"; error?: string; count: number; fetchedAt?: string; nearbyStores: number };
+export type ChainStatus = { key: string; name: string; status: "ok" | "sem resultado" | "erro" | "fora da área"; error?: string; count: number; scope?: string; fetchedAt?: string; nearbyStores: number; ms: number };
 export type SearchData = {
   query: string;
   center: { lat: number; lon: number };
   km: number;
+  widenedKm: number | null;
   cep: string | null;
+  uf: string | null;
+  city: string | null;
+  consultedCount: number;
+  pricedCount: number;
+  ms: number;
   osm: { ok: boolean; error?: string };
   stores: StoreLite[];
   results: ResultItem[];

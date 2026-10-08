@@ -1,5 +1,5 @@
 import { cached, fetchWithTimeout, UA } from "../cache";
-import type { ChainAdapter, ChainCtx, Delivery, Offer } from "./types";
+import type { ChainAdapter, ChainDef, Delivery, GeoCtx, Local, Offer } from "./types";
 
 type VtexProduct = {
   productName: string;
@@ -16,26 +16,26 @@ const HEADERS = { "User-Agent": UA, Accept: "application/json" };
 
 function toOffers(host: string, products: VtexProduct[]): Offer[] {
   const out: Offer[] = [];
-  for (const p of products) {
-    const item = p.items?.[0];
-    if (!item) continue;
-    const seller = item.sellers?.find((s) => s.commertialOffer?.AvailableQuantity > 0 && s.commertialOffer?.Price > 0);
-    if (!seller) continue;
-    const url = p.linkText ? `https://${host}/${p.linkText}/p` : (p.link || `https://${host}`).replace(/https:\/\/secure\./, "https://www.");
-    out.push({
-      product: p.productName,
-      price: seller.commertialOffer.Price,
-      listPrice: seller.commertialOffer.ListPrice,
-      url,
-      image: item.images?.[0]?.imageUrl,
-      sku: item.itemId,
-      seller: seller.sellerId,
-    });
+  for (const p of products || []) {
+    for (const item of (p.items || []).slice(0, 1)) {
+      const seller = item.sellers?.find((s) => s.commertialOffer?.AvailableQuantity > 0 && s.commertialOffer?.Price > 0);
+      if (!seller) continue;
+      const url = p.linkText ? `https://${host}/${p.linkText}/p` : (p.link || `https://${host}`).replace(/https:\/\/secure\./, "https://www.");
+      out.push({
+        product: p.productName,
+        price: seller.commertialOffer.Price,
+        listPrice: seller.commertialOffer.ListPrice,
+        url,
+        image: item.images?.[0]?.imageUrl,
+        sku: item.itemId,
+        seller: seller.sellerId,
+      });
+    }
   }
   return out;
 }
 
-function formatEta(s: string | undefined | null): string | null {
+export function formatEta(s: string | undefined | null): string | null {
   if (!s) return null;
   const m = s.match(/^(\d+)(bd|d|h|m)$/);
   if (!m) return s;
@@ -47,70 +47,86 @@ function formatEta(s: string | undefined | null): string | null {
   return n === 1 ? "1 dia" : `${n} dias`;
 }
 
-export function vtexChain(opts: {
-  key: string;
-  name: string;
-  host: string;
-  osmMatch: RegExp;
-  priceScope: string;
-  regionalized?: boolean; // usa intelligent-search com regionId do CEP
-  simulateDelivery?: boolean;
-}): ChainAdapter {
-  const { host } = opts;
+function prettySeller(id: string, name: string, chainName: string): string | null {
+  if (!name || name === id || /^[a-z0-9]+$/.test(name)) return null;
+  const clean = name.replace(/\s*\|\s*/g, " – ").trim();
+  return clean.toLowerCase().includes(chainName.toLowerCase().split(" ")[0]) ? clean : `${chainName} ${clean}`;
+}
 
-  async function regionId(cep: string): Promise<string | null> {
-    const { value } = await cached(`vtexregion:${host}:${cep}`, 7 * 24 * 3600, async () => {
-      const r = await fetchWithTimeout(`https://${host}/api/checkout/pub/regions?country=BRA&postalCode=${cep}`, { headers: HEADERS }, 5000);
-      if (!r.ok) return null;
-      const j = (await r.json()) as { id: string }[];
-      return j?.[0]?.id ?? null;
+export function vtexChain(def: ChainDef): ChainAdapter {
+  const { host } = def;
+  const site = `https://${host}`;
+
+  async function regions(cep: string): Promise<{ id: string; sellers: { id: string; name: string }[] } | null> {
+    const { value } = await cached(`vtexregion2:${host}:${cep}`, 7 * 24 * 3600, async () => {
+      const r = await fetchWithTimeout(`${site}/api/checkout/pub/regions?country=BRA&postalCode=${cep}`, { headers: HEADERS }, 4000);
+      if (!r.ok) throw new Error(`regions HTTP ${r.status}`);
+      const j = (await r.json()) as { id: string; sellers: { id: string; name: string }[] }[];
+      return j?.[0] ? { id: j[0].id, sellers: j[0].sellers || [] } : { id: "", sellers: [] };
     });
     return value;
   }
 
   return {
-    key: opts.key,
-    name: opts.name,
-    site: `https://${host}`,
-    osmMatch: opts.osmMatch,
-    priceScope: opts.priceScope,
-    async search(q: string, ctx: ChainCtx) {
-      if (opts.regionalized && ctx.cep) {
-        const rid = await regionId(ctx.cep).catch(() => null);
-        if (rid) {
-          const r = await fetchWithTimeout(
-            `https://${host}/api/io/_v/api/intelligent-search/product_search/?query=${encodeURIComponent(q)}&count=24&regionId=${encodeURIComponent(rid)}&locale=pt-BR`,
-            { headers: HEADERS },
-            7000,
-          );
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const j = (await r.json()) as { products: VtexProduct[] };
+    def,
+    key: def.key,
+    name: def.name,
+    site,
+    async prepare(ctx: GeoCtx): Promise<Local> {
+      const national: Local = { serves: true, scope: "nacional", label: `Preço do site ${def.name} (o mesmo para todo o site). Pode variar na loja física.` };
+      if (def.region === "none") {
+        return def.states === "*" || !ctx.uf || (def.states as string[]).includes(ctx.uf)
+          ? { ...national, scope: "regional", label: `Preço do site ${def.name} (${def.coverage}). Pode variar na loja física.` }
+          : national;
+      }
+      if (!ctx.cep) {
+        return def.region === "required" ? { ...national, serves: def.states !== "*" } : national;
+      }
+      const reg = await regions(ctx.cep);
+      const sellers = reg?.sellers || [];
+      if (!sellers.length) {
+        return def.region === "required" ? { serves: false, scope: "nacional", label: "Fora da área atendida" } : national;
+      }
+      if (sellers.length === 1) {
+        const nm = prettySeller(sellers[0].id, sellers[0].name, def.name);
+        return {
+          serves: true,
+          scope: "loja",
+          regionId: reg!.id,
+          label: nm ? `Preço da loja ${nm}, que atende o seu CEP.` : `Preço da loja ${def.name} que atende o seu CEP (site). Pode variar na loja física.`,
+        };
+      }
+      return { serves: true, scope: "regional", regionId: reg!.id, label: `Preço do site ${def.name} para a região do seu CEP. Pode variar na loja física.` };
+    },
+    async search(q: string, local: Local) {
+      if (def.search === "is") {
+        const url = `${site}/api/io/_v/api/intelligent-search/product_search/?query=${encodeURIComponent(q)}&count=30&locale=pt-BR${local.regionId ? `&regionId=${encodeURIComponent(local.regionId)}` : ""}`;
+        const r = await fetchWithTimeout(url, { headers: HEADERS }, 6000);
+        if (r.ok) {
+          const j = (await r.json()) as { products?: VtexProduct[] };
           return toOffers(host, j.products || []);
         }
+        if (local.regionId) throw new Error(`HTTP ${r.status}`);
       }
-      const r = await fetchWithTimeout(
-        `https://${host}/api/catalog_system/pub/products/search?ft=${encodeURIComponent(q)}&_from=0&_to=23`,
-        { headers: HEADERS },
-        7000,
-      );
+      const r = await fetchWithTimeout(`${site}/api/catalog_system/pub/products/search?ft=${encodeURIComponent(q)}&_from=0&_to=29`, { headers: HEADERS }, 6000);
       if (!r.ok && r.status !== 206) throw new Error(`HTTP ${r.status}`);
       const j = (await r.json()) as VtexProduct[];
       if (!Array.isArray(j)) throw new Error("resposta inesperada");
       return toOffers(host, j);
     },
-    async delivery(offer: Offer, ctx: ChainCtx): Promise<Delivery> {
-      const base: Delivery = { status: "consultar", url: `https://${host}` };
-      if (!opts.simulateDelivery || !ctx.cep || !offer.sku) return base;
+    async delivery(offer: Offer, ctx: GeoCtx): Promise<Delivery> {
+      const base: Delivery = { status: "consultar", url: site };
+      if (!def.simulate || !ctx.cep || !offer.sku) return base;
       const cep = ctx.cep;
-      const { value } = await cached(`vtexdelivery2:${host}:${cep}`, 3 * 3600, async () => {
+      const { value } = await cached(`vtexdelivery3:${host}:${cep}`, 3 * 3600, async () => {
         const r = await fetchWithTimeout(
-          `https://${host}/api/checkout/pub/orderForms/simulation?sc=1`,
+          `${site}/api/checkout/pub/orderForms/simulation?sc=1`,
           {
             method: "POST",
             headers: { ...HEADERS, "Content-Type": "application/json" },
-            body: JSON.stringify({ items: [{ id: offer.sku, quantity: 1, seller: offer.seller || "1" }], postalCode: ctx.cep, country: "BRA" }),
+            body: JSON.stringify({ items: [{ id: offer.sku, quantity: 1, seller: offer.seller || "1" }], postalCode: cep, country: "BRA" }),
           },
-          6000,
+          4000,
         );
         if (!r.ok) throw new Error(`simulation HTTP ${r.status}`);
         const j = (await r.json()) as {
@@ -119,17 +135,10 @@ export function vtexChain(opts: {
         };
         const slas = (j.logisticsInfo || []).flatMap((l) => l.slas || []);
         const del = slas.filter((s) => s.deliveryChannel !== "pickup-in-point").sort((a, b) => a.price - b.price);
-        if (del.length) {
-          return { status: "sim", fee: del[0].price / 100, eta: formatEta(del[0].shippingEstimate), url: `https://${host}`, note: del[0].name } as Delivery;
-        }
-        if (j.items?.[0]?.availability === "available" && slas.length) {
-          return { status: "nao", url: `https://${host}`, note: "Só retirada na loja para o seu CEP" } as Delivery;
-        }
+        if (del.length) return { status: "sim", fee: del[0].price / 100, eta: formatEta(del[0].shippingEstimate), url: site, note: del[0].name } as Delivery;
+        if (j.items?.[0]?.availability === "available" && slas.length) return { status: "nao", url: site, note: "Só retirada na loja para o seu CEP" } as Delivery;
         throw new Error("simulação inconclusiva");
-      }).catch((e) => {
-        console.warn("delivery", host, cep, String(e?.message || e));
-        return { value: base };
-      });
+      }).catch(() => ({ value: base }));
       return value;
     },
   };

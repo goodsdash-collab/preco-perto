@@ -16,16 +16,46 @@ export type Delivery = {
   note?: string;
 };
 
-export type ChainCtx = { cep?: string | null };
+export type GeoCtx = { cep: string | null; uf: string | null; city: string | null };
+
+export type PriceScope = "loja" | "regional" | "nacional";
+
+/** Resultado da localização da rede para o CEP do usuário */
+export type Local = {
+  serves: boolean; // a rede atende essa região?
+  scope: PriceScope;
+  label: string; // texto explicando de onde vem o preço
+  regionId?: string | null;
+  storeId?: number | null;
+  delivery?: Delivery | null; // já conhecido na localização (ex.: GPA)
+};
+
+export type ChainDef = {
+  key: string;
+  name: string;
+  platform: "vtex" | "gpa";
+  host: string;
+  /** UFs atendidas ("*" = nacional). Usado para decidir quais redes consultar. */
+  states: string[] | "*";
+  /** Regionalização VTEX: required = só consulta se a região do CEP tiver loja/seller; optional = usa se houver; none = não usa */
+  region: "required" | "optional" | "none";
+  search: "is" | "catalog";
+  /** Simula frete no checkout público */
+  simulate: boolean;
+  /** Apelidos normalizados para casar com nome/marca no OpenStreetMap */
+  osm: string[];
+  /** Apelidos que NÃO são essa rede (ex.: "atacadao dia a dia") */
+  osmNot?: string[];
+  coverage: string; // descrição humana da área atendida
+  note?: string; // observação exibida junto ao preço
+};
 
 export interface ChainAdapter {
+  def: ChainDef;
   key: string;
   name: string;
   site: string;
-  /** Casa o nome/marca da loja no OpenStreetMap */
-  osmMatch: RegExp;
-  /** Explica o alcance do preço do site (loja, região ou nacional) */
-  priceScope: string;
-  search(q: string, ctx: ChainCtx): Promise<Offer[]>;
-  delivery(offer: Offer, ctx: ChainCtx): Promise<Delivery>;
+  prepare(ctx: GeoCtx): Promise<Local>;
+  search(q: string, local: Local): Promise<Offer[]>;
+  delivery(offer: Offer, ctx: GeoCtx, local: Local): Promise<Delivery>;
 }
