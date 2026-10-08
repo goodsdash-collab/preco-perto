@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "br.com.precoperto.app",
+      "sha256_cert_fingerprints": ["03:26:1D:D3:F6:E1:45:CD:16:E7:21:04:C7:07:E6:30:9B:06:A0:7B:3C:ED:12:0C:67:F0:1C:A8:CE:B9:AF:A3"]
+    }
+  }
+]
