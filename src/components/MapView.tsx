@@ -12,13 +12,19 @@ type Props = {
   results: ResultItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  accuracy?: number | null;
+  onLocate?: () => void;
+  locating?: boolean;
 };
 
 function esc(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
-export default function MapView({ center, stores, results, selectedId, onSelect }: Props) {
+export default function MapView({ center, stores, results, selectedId, onSelect, accuracy, onLocate, locating }: Props) {
+  const locateBtn = useRef<HTMLAnchorElement | null>(null);
+  const onLocateRef = useRef(onLocate);
+  onLocateRef.current = onLocate;
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const layer = useRef<L.LayerGroup | null>(null);
@@ -32,6 +38,27 @@ export default function MapView({ center, stores, results, selectedId, onSelect 
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map.current);
     layer.current = L.layerGroup().addTo(map.current);
+    // Controle "me localize" (abaixo do zoom)
+    const Locate = L.Control.extend({
+      onAdd() {
+        const div = L.DomUtil.create("div", "leaflet-bar leaflet-control");
+        const a = L.DomUtil.create("a", "pp-locate", div) as HTMLAnchorElement;
+        a.href = "#";
+        a.title = "Atualizar minha localização";
+        a.setAttribute("role", "button");
+        a.setAttribute("aria-label", "Atualizar minha localização");
+        a.setAttribute("data-testid", "map-locate");
+        a.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="#1c7ed6"/><circle cx="12" cy="12" r="8" fill="none" stroke="#333" stroke-width="2"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="#333" stroke-width="2"/></svg>';
+        L.DomEvent.disableClickPropagation(div);
+        L.DomEvent.on(a, "click", (e) => {
+          L.DomEvent.preventDefault(e);
+          onLocateRef.current?.();
+        });
+        locateBtn.current = a;
+        return div;
+      },
+    });
+    new Locate({ position: "topleft" }).addTo(map.current);
     return () => {
       map.current?.remove();
       map.current = null;
@@ -46,6 +73,9 @@ export default function MapView({ center, stores, results, selectedId, onSelect 
     lg.clearLayers();
     markers.current.clear();
 
+    if (accuracy && accuracy > 15 && accuracy < 5000) {
+      L.circle([center.lat, center.lon], { radius: accuracy, color: "#1c7ed6", weight: 1, fillColor: "#1c7ed6", fillOpacity: 0.1, interactive: false }).addTo(lg);
+    }
     L.circleMarker([center.lat, center.lon], { radius: 8, color: "#fff", weight: 3, fillColor: "#1c7ed6", fillOpacity: 1 })
       .bindPopup("Você está aqui")
       .addTo(lg);
@@ -75,7 +105,11 @@ export default function MapView({ center, stores, results, selectedId, onSelect 
     }
     if (pts.length > 1) m.fitBounds(L.latLngBounds(pts), { padding: [30, 30], maxZoom: 15 });
     else m.setView([center.lat, center.lon], 14);
-  }, [center.lat, center.lon, stores, results, onSelect]);
+  }, [center.lat, center.lon, accuracy, stores, results, onSelect]);
+
+  useEffect(() => {
+    locateBtn.current?.classList.toggle("pp-locating", !!locating);
+  }, [locating]);
 
   useEffect(() => {
     if (!selectedId || !map.current) return;

@@ -43,7 +43,7 @@ function fallback(lat: number, lon: number): GeoCtx {
 
 /** CEP, UF e cidade da localização (Nominatim reverso, com cache por ~1 km). */
 export async function geoFor(lat: number, lon: number): Promise<GeoCtx & { approx?: boolean }> {
-  const key = `geo2:${lat.toFixed(2)}:${lon.toFixed(2)}`;
+  const key = `geo3:${lat.toFixed(3)}:${lon.toFixed(3)}`;
   try {
     const { value } = await cached(key, 30 * 24 * 3600, async () => {
       const r = await fetchWithTimeout(
@@ -60,11 +60,12 @@ export async function geoFor(lat: number, lon: number): Promise<GeoCtx & { appro
       const st = (a.state || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       const uf = iso.startsWith("BR-") ? iso.slice(3) : UF_BY_STATE[st] || null;
       const city = a.city || a.town || a.municipality || a.village || null;
-      return { cep, uf, city } as GeoCtx;
+      const bairro = a.suburb || a.neighbourhood || a.quarter || a.city_district || null;
+      return { cep, uf, city, bairro } as GeoCtx;
     });
     if (!value.cep || !value.uf) {
       const fb = fallback(lat, lon);
-      return { cep: value.cep || fb.cep, uf: value.uf || fb.uf, city: value.city || fb.city, approx: !value.cep };
+      return { cep: value.cep || fb.cep, uf: value.uf || fb.uf, city: value.city || fb.city, bairro: value.bairro, approx: !value.cep };
     }
     // Alguns endereços do OSM têm CEP errado (ex.: centro de Salvador marcado com CEP de Feira de Santana);
     // se a cidade é uma das conhecidas e o CEP cai fora da faixa dela, usa o CEP central da cidade.
@@ -77,4 +78,57 @@ export async function geoFor(lat: number, lon: number): Promise<GeoCtx & { appro
   } catch {
     return { ...fallback(lat, lon), approx: true };
   }
+}
+
+export type GeocodeHit = { lat: number; lon: number; cep: string | null; label: string; bairro: string | null; city: string | null; uf: string | null; precision: "rua" | "bairro" | "cidade" | "endereco" };
+
+async function nominatimSearch(params: Record<string, string>) {
+  const u = new URL("https://nominatim.openstreetmap.org/search");
+  for (const [k, v] of Object.entries({ format: "jsonv2", addressdetails: "1", limit: "1", countrycodes: "br", ...params })) u.searchParams.set(k, v);
+  const r = await fetchWithTimeout(u.toString(), { headers: { "User-Agent": UA, "Accept-Language": "pt-BR" } }, 6000);
+  if (!r.ok) throw new Error(`nominatim ${r.status}`);
+  const j = (await r.json()) as { lat: string; lon: string; display_name: string; address?: Record<string, string> }[];
+  return j[0] || null;
+}
+
+/** Converte CEP (ViaCEP + Nominatim) ou endereço livre (Nominatim) em coordenadas. */
+export async function geocodeQuery(raw: string): Promise<GeocodeHit | null> {
+  const q = raw.trim().slice(0, 160);
+  const digits = q.replace(/\D/g, "");
+  const isCep = /^\d{5}-?\d{3}$/.test(q.replace(/\s/g, ""));
+  if (isCep) {
+    const { value } = await cached(`viacep:${digits}`, 30 * 24 * 3600, async () => {
+      const r = await fetchWithTimeout(`https://viacep.com.br/ws/${digits}/json/`, { headers: { "User-Agent": UA } }, 6000);
+      if (!r.ok) throw new Error(`viacep ${r.status}`);
+      const j = (await r.json()) as { erro?: boolean | string; logradouro?: string; bairro?: string; localidade?: string; uf?: string };
+      if (j.erro) return null;
+      const city = j.localidade || "";
+      const uf = j.uf || "";
+      const tries: [Record<string, string>, GeocodeHit["precision"]][] = [];
+      if (j.logradouro) tries.push([{ street: j.logradouro, city, state: uf, country: "Brasil" }, "rua"]);
+      if (j.bairro) tries.push([{ q: `${j.bairro}, ${city}, ${uf}` }, "bairro"]);
+      tries.push([{ city, state: uf, country: "Brasil" }, "cidade"]);
+      for (const [params, precision] of tries) {
+        const hit = await nominatimSearch(params).catch(() => null);
+        if (hit) {
+          const label = [j.logradouro, j.bairro, city && `${city}/${uf}`].filter(Boolean).join(", ");
+          return { lat: Number(hit.lat), lon: Number(hit.lon), cep: digits, label, bairro: j.bairro || null, city: city || null, uf: uf || null, precision } as GeocodeHit;
+        }
+      }
+      return null;
+    });
+    return value;
+  }
+  const { value } = await cached(`geocode:${q.toLowerCase()}`, 30 * 24 * 3600, async () => {
+    const hit = await nominatimSearch({ q });
+    if (!hit) return null;
+    const a = hit.address || {};
+    const pc = (a.postcode || "").replace(/\D/g, "");
+    const city = a.city || a.town || a.municipality || a.village || null;
+    const bairro = a.suburb || a.neighbourhood || a.quarter || a.city_district || null;
+    const iso = a["ISO3166-2-lvl4"] || "";
+    const label = [a.road && [a.road, a.house_number].filter(Boolean).join(", "), bairro, city].filter(Boolean).join(" · ") || hit.display_name.split(",").slice(0, 3).join(",");
+    return { lat: Number(hit.lat), lon: Number(hit.lon), cep: pc.length === 8 ? pc : null, label, bairro, city, uf: iso.startsWith("BR-") ? iso.slice(3) : null, precision: "endereco" } as GeocodeHit;
+  });
+  return value;
 }

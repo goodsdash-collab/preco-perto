@@ -12,7 +12,8 @@ export async function GET(req: Request) {
   const { lat, lon } = parseLatLon(u.searchParams.get("lat"), u.searchParams.get("lon"));
   const km = Math.min(8, Math.max(1, Number(u.searchParams.get("km")) || 4));
   try {
-    const data = await runSearch(q, lat, lon, km);
+    const cep = (u.searchParams.get("cep") || "").replace(/\D/g, "");
+    const data = await runSearch(q, lat, lon, km, cep.length === 8 ? cep : null);
     return NextResponse.json(data);
   } catch (err) {
     console.error("search error", err);

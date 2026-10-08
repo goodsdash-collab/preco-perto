@@ -16,7 +16,7 @@ export type Delivery = {
   note?: string;
 };
 
-export type GeoCtx = { cep: string | null; uf: string | null; city: string | null };
+export type GeoCtx = { cep: string | null; uf: string | null; city: string | null; bairro?: string | null };
 
 export type PriceScope = "loja" | "regional" | "nacional";
 

@@ -104,7 +104,7 @@ function inStates(c: ChainAdapter, uf: string | null) {
   return s === "*" || (!!uf && s.includes(uf));
 }
 
-export async function runSearch(q: string, lat: number, lon: number, km: number) {
+export async function runSearch(q: string, lat: number, lon: number, km: number, cepOverride?: string | null) {
   const t0 = Date.now();
   const qTokens = tokens(q);
   const qNorm = normalize(q);
@@ -112,7 +112,8 @@ export async function runSearch(q: string, lat: number, lon: number, km: number)
   const fitsNiche = (c: ChainAdapter) => c.def.niches.some((n) => niches.includes(n));
 
   // Geo (CEP/UF) e lojas do OSM em paralelo; as redes da UF começam assim que o CEP chega.
-  const geoP = geoFor(lat, lon);
+  // CEP digitado pelo usuário (endereço manual) tem prioridade sobre o CEP do geocoding reverso
+  const geoP = geoFor(lat, lon).then((g) => (cepOverride ? { ...g, cep: cepOverride } : g));
   const storesP = ensureStores(lat, lon, km).then(async (osm) => ({ osm, stores: await nearbyStores(lat, lon, km) }));
 
   const geo = await geoP;
@@ -238,6 +239,7 @@ export async function runSearch(q: string, lat: number, lon: number, km: number)
     cep: geo.cep,
     uf: geo.uf,
     city: geo.city,
+    bairro: geo.bairro || null,
     osm,
     niches,
     unpriced,

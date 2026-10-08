@@ -7,3 +7,8 @@ html, body { background: #f6f7f5; color: #1c1f1d; }
 .price-pin { background: #0f9d58; color: #fff; font-weight: 700; font-size: 12px; padding: 2px 6px; border-radius: 9999px; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.35); border: 2px solid #fff; transform: translate(-50%, -50%); display: inline-block; }
 .price-pin.best { background: #e8590c; }
 .price-pin.comunidade { background: #6741d9; }
+
+/* Controle "me localize" do mapa */
+.pp-locate { display: flex !important; align-items: center; justify-content: center; width: 34px !important; height: 34px !important; line-height: 34px !important; }
+.pp-locate.pp-locating svg { animation: pp-spin 1s linear infinite; }
+@keyframes pp-spin { to { transform: rotate(360deg); } }

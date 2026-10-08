@@ -1,18 +1,18 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PriceForm from "./PriceForm";
+import LocationBar from "./LocationBar";
+import { kmBetween, useLocation } from "./useLocation";
 import { ago, brl, dist } from "./format";
 import type { PriceEntry, ResultItem, SearchData, StoreLite } from "./types";
 import { NICHE_INFO, type Niche } from "@/lib/categories";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-gray-200" /> });
 
-const RIO = { lat: -22.9068, lon: -43.1729 };
 const SUGESTOES = ["arroz 5kg", "dipirona", "ração golden 15kg", "pão francês", "cimento 50kg", "pastilha de freio", "fone bluetooth", "leite integral"];
 
-type Loc = { lat: number; lon: number; source: "gps" | "padrao" | "buscando" };
 
 function DeliveryLine({ r }: { r: ResultItem }) {
   const d = r.delivery;
@@ -72,7 +72,7 @@ function EntryRow({ e, onConfirm }: { e: PriceEntry; onConfirm: (id: string) => 
 }
 
 export default function App() {
-  const [loc, setLoc] = useState<Loc>({ ...RIO, source: "buscando" });
+  const { loc, locating, error: locError, refresh, setManual, setPlace, follow, setFollow } = useLocation();
   const [q, setQ] = useState("");
   const [km, setKm] = useState(4);
   const [sort, setSort] = useState<"preco" | "perto">("preco");
@@ -87,23 +87,35 @@ export default function App() {
   const [nicheFilter, setNicheFilter] = useState<string[] | null>(null);
   const [formStore, setFormStore] = useState<string | null>(null);
 
+  // Lojas do mapa: recarrega quando a posição muda (~100 m) ou o raio muda
+  const storesKey = loc.source === "buscando" ? "" : `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)},${km}`;
   useEffect(() => {
-    if (!("geolocation" in navigator)) return setLoc({ ...RIO, source: "padrao" });
-    navigator.geolocation.getCurrentPosition(
-      (p) => setLoc({ lat: p.coords.latitude, lon: p.coords.longitude, source: "gps" }),
-      () => setLoc({ ...RIO, source: "padrao" }),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
-    );
-  }, []);
-
-  useEffect(() => {
-    if (loc.source === "buscando") return;
+    if (!storesKey) return;
+    let alive = true;
     fetch(`/api/stores?lat=${loc.lat}&lon=${loc.lon}&km=${km}`)
       .then((r) => r.json())
-      .then((j) => setStores(j.stores || []))
+      .then((j) => alive && setStores(j.stores || []))
       .catch(() => {});
-  }, [loc.lat, loc.lon, loc.source, km]);
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storesKey]);
 
+  // Bairro/cidade/CEP da posição (geocoding reverso), exceto endereço digitado que já tem rótulo
+  useEffect(() => {
+    if (loc.source === "buscando" || loc.source === "manual" || loc.place?.cep) return;
+    const rev = loc.rev;
+    fetch(`/api/geo?lat=${loc.lat}&lon=${loc.lon}`)
+      .then((r) => r.json())
+      .then((g) => setPlace({ bairro: g.bairro, city: g.city, uf: g.uf, cep: g.cep }, rev))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loc.rev]);
+
+  const lastQuery = useRef<string | null>(null);
+  const searchedAt = useRef<{ lat: number; lon: number; cep: string | null } | null>(null);
+  const searchSeq = useRef(0);
   const [autoQ, setAutoQ] = useState<string | null>(null);
   useEffect(() => {
     const p = new URLSearchParams(window.location.search).get("q");
@@ -120,22 +132,35 @@ export default function App() {
       setLoading(true);
       setError(null);
       setSelected(null);
+      lastQuery.current = t;
+      searchedAt.current = { lat: loc.lat, lon: loc.lon, cep: loc.manualCep || null };
+      const seq = ++searchSeq.current;
       try {
-        const r = await fetch(`/api/search?q=${encodeURIComponent(t)}&lat=${loc.lat}&lon=${loc.lon}&km=${km}`);
+        const r = await fetch(`/api/search?q=${encodeURIComponent(t)}&lat=${loc.lat}&lon=${loc.lon}&km=${km}${loc.manualCep ? `&cep=${loc.manualCep}` : ""}`);
         const j = await r.json();
+        if (seq !== searchSeq.current) return; // chegou uma busca mais nova
         if (!r.ok) throw new Error(j.error || "Erro na busca");
         setData(j);
         if (j.stores?.length) setStores(j.stores);
         setNicheFilter(j.niches || null);
         window.history.replaceState(null, "", `?q=${encodeURIComponent(t)}`);
       } catch (e) {
-        setError((e as Error).message);
+        if (seq === searchSeq.current) setError((e as Error).message);
       } finally {
-        setLoading(false);
+        if (seq === searchSeq.current) setLoading(false);
       }
     },
-    [loc.lat, loc.lon, km],
+    [loc.lat, loc.lon, loc.manualCep, km],
   );
+
+  // Nova posição: refaz a busca atual (sempre em ação explícita; no GPS automático só se andou > 100 m)
+  useEffect(() => {
+    if (loc.source === "buscando" || !lastQuery.current) return;
+    const prev = searchedAt.current;
+    const moved = prev ? kmBetween(prev, loc) : Infinity;
+    if (loc.force || moved > 0.1 || (prev?.cep || null) !== (loc.manualCep || null)) search(lastQuery.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loc.rev]);
 
   useEffect(() => {
     if (autoQ && loc.source !== "buscando") {
@@ -167,7 +192,9 @@ export default function App() {
   const mapStores = useMemo(() => (nicheFilter ? stores.filter((s) => nicheFilter.includes(s.niche || "mercado")) : stores), [stores, nicheFilter]);
 
   const cheapest = results.length ? Math.min(...results.map((r) => r.best.price)) : null;
-  const center = data?.center || { lat: loc.lat, lon: loc.lon };
+  const center = { lat: loc.lat, lon: loc.lon };
+  // resultados de uma posição antiga não aparecem no mapa enquanto a nova busca roda
+  const mapResults = data && kmBetween(data.center, loc) < 0.3 ? results : [];
   const onSelect = useCallback((id: string) => {
     setSelected(id);
     document.getElementById(`r-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -197,9 +224,6 @@ export default function App() {
           <button className="rounded-xl bg-orange-500 px-4 font-bold">Buscar</button>
         </form>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full bg-white/15 px-2 py-1">
-            {loc.source === "gps" ? "📡 Sua localização" : loc.source === "buscando" ? "⏳ Localizando…" : "📍 Centro do Rio (padrão)"}
-          </span>
           <select value={km} onChange={(e) => setKm(Number(e.target.value))} className="rounded-full bg-white/15 px-2 py-1 text-white">
             {[2, 4, 6, 8].map((k) => (
               <option key={k} value={k} className="text-black">
@@ -214,8 +238,19 @@ export default function App() {
         </div>
       </header>
 
+      <LocationBar loc={loc} locating={locating} error={locError} follow={follow} onRefresh={() => refresh()} onFollow={setFollow} onManual={setManual} />
+
       <section className="relative h-[42vh] min-h-[260px] w-full">
-        <MapView center={center} stores={mapStores} results={results} selectedId={selected} onSelect={onSelect} />
+        <MapView
+          center={center}
+          accuracy={loc.source === "gps" || loc.source === "salva" ? loc.accuracy ?? null : null}
+          stores={mapStores}
+          results={mapResults}
+          selectedId={selected}
+          onSelect={onSelect}
+          onLocate={() => refresh()}
+          locating={locating}
+        />
       </section>
 
       {nicheCounts.length > 0 && (

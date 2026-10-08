@@ -33,6 +33,7 @@ export type SearchData = {
   cep: string | null;
   uf: string | null;
   city: string | null;
+  bairro?: string | null;
   consultedCount: number;
   pricedCount: number;
   ms: number;
