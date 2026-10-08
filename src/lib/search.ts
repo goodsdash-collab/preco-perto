@@ -116,7 +116,11 @@ export async function runSearch(q: string, lat: number, lon: number, km: number)
   const launched = new Map<string, Promise<ChainRun>>();
   for (const c of CHAINS) if (fitsNiche(c) && inStates(c, geo.uf)) launched.set(c.key, runChain(c, q, qNorm, qTokens, geo));
 
-  const storesRes = await storesP;
+  // Overpass frio em área densa pode demorar; não segura a busca além de ~6 s (o /api/stores continua aquecendo o cache)
+  const storesRes = await withTimeout(storesP, Math.max(1500, 6500 - (Date.now() - t0))).catch(async () => ({
+    osm: { ok: false, error: "lojas do mapa ainda carregando" } as { ok: boolean; error?: string },
+    stores: await nearbyStores(lat, lon, km),
+  }));
   const osm = storesRes.osm;
   let stores = storesRes.stores;
   // Redes com loja física por perto mas fora da lista da UF (ex.: Muffato no oeste de SP)

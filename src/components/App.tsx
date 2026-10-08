@@ -273,7 +273,7 @@ export default function App() {
                       {c.status === "ok" ? "✓" : c.status === "erro" ? "⚠" : "–"} {c.name}
                     </span>
                   ))}
-                {!data.osm.ok && <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-yellow-800">mapa de mercados indisponível agora</span>}
+                {!data.osm.ok && <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-yellow-800">lojas do mapa ainda carregando — busque de novo em instantes</span>}
               </div>
               <p className="mt-2 text-xs text-gray-500">
                 {data.pricedCount} com preço para &quot;{data.query}&quot;

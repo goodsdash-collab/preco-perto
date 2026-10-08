@@ -29,19 +29,23 @@ function lev1(a: string, b: string): boolean {
   return edits + (a.length - i) + (b.length - j) <= 1;
 }
 
+const COMMON = new Set(["atacado", "drogaria", "farmacia", "mercado", "supermercado", "mercadinho", "padaria", "materiais", "construcao"]);
+
+/**
+ * Casa um apelido com o texto: sequência exata de palavras, ou grupo de 1-3 palavras
+ * consecutivas igual ao apelido sem espaços (ex.: "zonasul"), ou com 1 erro de digitação
+ * para apelidos longos (ex.: "prezunik"). Nunca casa pedaço de palavra ("drogalife" ≠ "drogal").
+ */
 function aliasMatch(text: string, alias: string): boolean {
-  const words = ` ${text} `;
-  if (words.includes(` ${alias} `)) return true;
-  if (alias.length < 5) return false; // apelidos curtos (oba, coop) só com palavra exata
-  const compact = text.replace(/ /g, "");
+  if (` ${text} `.includes(` ${alias} `)) return true;
   const a = alias.replace(/ /g, "");
-  if (compact.includes(a)) return true;
-  if (a.length >= 7) {
-    for (let k = 0; k + a.length - 1 <= compact.length; k++) {
-      for (const len of [a.length - 1, a.length, a.length + 1]) {
-        const w = compact.slice(k, k + len);
-        if (w.length === len && lev1(w, a)) return true;
-      }
+  const words = text.split(" ");
+  for (let i = 0; i < words.length; i++) {
+    let g = "";
+    for (let k = i; k < Math.min(words.length, i + 3); k++) {
+      g += words[k];
+      if (g === a) return true;
+      if (a.length >= 7 && !COMMON.has(g) && lev1(g, a)) return true;
     }
   }
   return false;
