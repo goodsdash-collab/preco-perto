@@ -102,7 +102,7 @@ export function vtexChain(opts: {
       const base: Delivery = { status: "consultar", url: `https://${host}` };
       if (!opts.simulateDelivery || !ctx.cep || !offer.sku) return base;
       const cep = ctx.cep;
-      const { value } = await cached(`vtexdelivery:${host}:${cep}`, 3 * 3600, async () => {
+      const { value } = await cached(`vtexdelivery2:${host}:${cep}`, 3 * 3600, async () => {
         const r = await fetchWithTimeout(
           `https://${host}/api/checkout/pub/orderForms/simulation?sc=1`,
           {
