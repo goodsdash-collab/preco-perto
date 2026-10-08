@@ -53,8 +53,11 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error("tempo esgotado")), ms))]);
 }
 
-function pickOffers(offers: Offer[], qTokens: string[]): Offer[] {
-  let m = offers.filter((o) => matchesAll(o.product, qTokens));
+// Itens de pet ("arroz para cães") não devem aparecer em buscas de mercado
+const PET_RE = /\b(caes|cao|cachorros?|gatos?|pets?|racao|filhotes?|aves|passaros)\b/;
+function pickOffers(offers: Offer[], qTokens: string[], niches: Niche[]): Offer[] {
+  const petOk = niches.includes("pet") || qTokens.some((t) => PET_RE.test(t));
+  let m = offers.filter((o) => matchesAll(o.product, qTokens) && (petOk || !PET_RE.test(normalize(o.product))));
   const primary = m.filter((o) => isPrimary(o.product, qTokens));
   if (primary.length) m = primary;
   return m.sort((a, b) => a.price - b.price).slice(0, 5);
@@ -69,7 +72,7 @@ type ChainRun = {
   delivery: Delivery;
 };
 
-async function runChain(c: ChainAdapter, q: string, qNorm: string, qTokens: string[], geo: GeoCtx): Promise<ChainRun> {
+async function runChain(c: ChainAdapter, q: string, qNorm: string, qTokens: string[], geo: GeoCtx, niches: Niche[]): Promise<ChainRun> {
   const t0 = Date.now();
   const base = { key: c.key, name: c.name, nearbyStores: 0 };
   try {
@@ -81,7 +84,7 @@ async function runChain(c: ChainAdapter, q: string, qNorm: string, qTokens: stri
         }
         const loc = local.regionId || local.storeId || "-";
         const { value } = await cached(`chain2:${c.key}:${qNorm}:${loc}`, 15 * 60, async () => ({ offers: await c.search(q, local), fetchedAt: new Date().toISOString() }));
-        const offers = pickOffers(value.offers, qTokens);
+        const offers = pickOffers(value.offers, qTokens, niches);
         let delivery: Delivery = { status: "consultar", url: c.site };
         if (offers.length) {
           delivery = await withTimeout(c.delivery(offers[0], geo, local), 4000).catch(() => ({ status: "consultar", url: c.site }) as Delivery);
@@ -114,7 +117,7 @@ export async function runSearch(q: string, lat: number, lon: number, km: number)
 
   const geo = await geoP;
   const launched = new Map<string, Promise<ChainRun>>();
-  for (const c of CHAINS) if (fitsNiche(c) && inStates(c, geo.uf)) launched.set(c.key, runChain(c, q, qNorm, qTokens, geo));
+  for (const c of CHAINS) if (fitsNiche(c) && inStates(c, geo.uf)) launched.set(c.key, runChain(c, q, qNorm, qTokens, geo, niches));
 
   // Overpass frio em área densa pode demorar; não segura a busca além de ~6 s (o /api/stores continua aquecendo o cache)
   const storesRes = await withTimeout(storesP, Math.max(1500, 6500 - (Date.now() - t0))).catch(async () => ({
@@ -125,7 +128,7 @@ export async function runSearch(q: string, lat: number, lon: number, km: number)
   let stores = storesRes.stores;
   // Redes com loja física por perto mas fora da lista da UF (ex.: Muffato no oeste de SP)
   for (const c of CHAINS) {
-    if (fitsNiche(c) && !launched.has(c.key) && stores.some((s) => s.chain === c.key)) launched.set(c.key, runChain(c, q, qNorm, qTokens, geo));
+    if (fitsNiche(c) && !launched.has(c.key) && stores.some((s) => s.chain === c.key)) launched.set(c.key, runChain(c, q, qNorm, qTokens, geo, niches));
   }
   const chainOut = await Promise.all(launched.values());
 
