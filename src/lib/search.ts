@@ -64,7 +64,7 @@ export async function runSearch(q: string, lat: number, lon: number, km: number)
         const offers = pickOffers(value.offers, qTokens);
         let delivery: Delivery = { status: "consultar", url: c.site };
         if (offers.length) {
-          delivery = await withTimeout(c.delivery(offers[0], { cep }), 6000).catch(() => ({ status: "consultar", url: c.site }) as Delivery);
+          delivery = await withTimeout(c.delivery(offers[0], { cep }), 8000).catch(() => ({ status: "consultar", url: c.site }) as Delivery);
         }
         const status: ChainStatus = { key: c.key, name: c.name, status: offers.length ? "ok" : "sem resultado", count: offers.length, fetchedAt: value.fetchedAt, nearbyStores: nearby.length };
         return { c, offers, fetchedAt: value.fetchedAt, delivery, status, nearby };

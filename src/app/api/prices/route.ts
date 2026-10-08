@@ -27,8 +27,9 @@ export async function POST(req: Request) {
   if (!Number.isFinite(price) || price < 0.1 || price > 3000) {
     return NextResponse.json({ error: "Preço fora do normal. Confira o valor (entre R$ 0,10 e R$ 3.000)." }, { status: 400 });
   }
-  const observedAt = dateS ? new Date(`${dateS}T12:00:00-03:00`) : new Date();
   const now = Date.now();
+  const todaySP = new Date(now - 3 * 3600e3).toISOString().slice(0, 10);
+  const observedAt = dateS && dateS !== todaySP ? new Date(`${dateS}T12:00:00-03:00`) : new Date(now);
   if (isNaN(observedAt.getTime()) || observedAt.getTime() > now + 24 * 3600e3 || observedAt.getTime() < now - 60 * 24 * 3600e3) {
     return NextResponse.json({ error: "A data precisa ser dos últimos 60 dias." }, { status: 400 });
   }

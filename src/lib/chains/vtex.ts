@@ -101,7 +101,8 @@ export function vtexChain(opts: {
     async delivery(offer: Offer, ctx: ChainCtx): Promise<Delivery> {
       const base: Delivery = { status: "consultar", url: `https://${host}` };
       if (!opts.simulateDelivery || !ctx.cep || !offer.sku) return base;
-      const { value } = await cached(`vtexdelivery:${host}:${ctx.cep}`, 3 * 3600, async () => {
+      const cep = ctx.cep;
+      const { value } = await cached(`vtexdelivery:${host}:${cep}`, 3 * 3600, async () => {
         const r = await fetchWithTimeout(
           `https://${host}/api/checkout/pub/orderForms/simulation?sc=1`,
           {
@@ -111,7 +112,7 @@ export function vtexChain(opts: {
           },
           6000,
         );
-        if (!r.ok) return base;
+        if (!r.ok) throw new Error(`simulation HTTP ${r.status}`);
         const j = (await r.json()) as {
           items?: { availability?: string }[];
           logisticsInfo?: { slas: { deliveryChannel?: string; price: number; shippingEstimate: string; name: string }[] }[];
@@ -124,7 +125,10 @@ export function vtexChain(opts: {
         if (j.items?.[0]?.availability === "available" && slas.length) {
           return { status: "nao", url: `https://${host}`, note: "Só retirada na loja para o seu CEP" } as Delivery;
         }
-        return base;
+        throw new Error("simulação inconclusiva");
+      }).catch((e) => {
+        console.warn("delivery", host, cep, String(e?.message || e));
+        return { value: base };
       });
       return value;
     },
